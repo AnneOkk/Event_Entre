@@ -1,0 +1,700 @@
+---
+title: "Entrepreneurs_neg_workevents"
+author: "Anne"
+date: "9/28/2020"
+output: html_document
+---
+
+```{r}
+library("WebPower")
+
+wp.mediation(n = NULL, power = 0.8, a = 0.4, b = 0.4, varx = 1,
+vary = 1, varm = 1, alpha = 0.05, interval = NULL)
+
+```
+
+
+```{r loading_packs, eval = T, include = F, echo = F}
+knitr::opts_chunk$set(include = F, echo = F, warning = F, message = F)
+ipak <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg)) 
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+packages <- c("mediation", "foreign", "tidyverse","stargazer","multicon", "ggplot2", "plyr", "reshape2", "readxl", 
+              "scales", "grid", "tidyLPA", "Rcpp", "naniar", "dplyr", "car", "mice", 
+              "rstudioapi", "labelled", "modi", "semPlot", "kulife")
+ipak(packages)
+
+citation()
+```
+
+```{r setwd, include = FALSE, echo = FALSE}
+library(rstudioapi)
+ set_wd <- function() {
+   current_path <- getActiveDocumentContext()$path 
+   setwd(dirname(current_path ))
+   print( getwd() )
+ }
+ set_wd()
+ 
+ getwd()
+```
+
+## Load data 
+
+```{r loading_data, cache = TRUE}
+
+options(knitr.table.format = function() {
+  if (knitr::is_latex_output()) 'latex' else 'pandoc'
+})
+
+library(rlang)
+library(tidyverse)
+library(foreign)
+files <- dir(paste0(getwd(), "/Data/"), pattern = "\\.sav$", full.names = FALSE) 
+df_list <- vector("list", length(files))
+names(df_list) <- files
+read_in <- function(df = files) {
+  for (fname in df) {
+    df_list[[fname]] <- haven::read_sav(paste0(getwd(), "/Data/", fname), encoding = NULL, user_na = FALSE, col_select = NULL,skip = 0, n_max = Inf, .name_repair = "unique") 
+  }
+    names(df_list) <- paste0("", gsub(".sav","",names(df_list)))
+    ff <- df_list
+}
+
+
+df_list <- read_in(files)
+
+list2env(df_list,envir=.GlobalEnv)
+
+Events_T1_stud <- rbind(Events_T1_Ke, Events_T1_Lo, Events_T1_Ma, Events_T1_Zo, Events_T1_Va, Events_T1_Pa, Events_T1_Ay) 
+
+T1 <- as.data.frame(Events_T1) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+T1_stud <- as.data.frame(Events_T1_stud) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+T1_second <- as.data.frame(Events_T1_second) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+T2<- as.data.frame(Events_T2) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+T3<- as.data.frame(Events_T3) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+
+```
+
+## Rename event categories columns
+
+```{r}
+T1 <- T1 %>% dplyr::rename(., 
+                    t1evcatfinancial = t1evcat_1,
+                    t1evcatconflictswith = t1evcat_2,
+                    t1evcatconflictsbetween = t1evcat_3,
+                    t1evcatlegal = t1evcat_4,
+                    t1evcatabsencepersonnel = t1evcat_5,
+                    t1evcatmaterial = t1evcat_6,
+                    t1evcatmistakes = t1evcat_7,
+                    t1evcatother = t1evcat_8,
+                    
+                    t1evdesfinancial = t1evdes_1,
+                    t1evdesconflictswith = t1evdes_2,
+                    t1evdesconflictsbetween = t1evdes_3,
+                    t1evdeslegal = t1evdes_4,
+                    t1evdesabsencepersonnel = t1evdes_5,
+                    t1evdesmaterial = t1evdes_6,
+                    t1evdesmistakes = t1evdes_7,
+                    t1evdesother = t1evdes_8)
+```
+
+
+## Select certain columns for outputs
+
+```{r}
+library(naniar)
+library(xlsx)
+email_all<- T1 %>% dplyr::select(matches("StartDate|email"))
+write.xlsx(email_all, file = "Data/email_all.xlsx",sheetName = "email_date", row.names = FALSE, col.names=T)
+
+events_descr <- T1  %>% dplyr::select(matches("evdes")) %>% replace_with_na_all(condition = ~.x == "")
+events_descr <- events_descr[rowSums(is.na(events_descr)) != ncol(events_descr), ]
+
+write.xlsx(as.data.frame(events_descr), file = "Data/events_descr.xlsx",sheetName = "events_descr", row.names = FALSE, col.names=T)
+```
+
+## Get valid data 
+
+* t1found == 1 
+* t1date_1 == 1-4 
+
+```{r}
+# get email of all participants
+T1 <- T1 %>% filter(t1found == 1) %>% filter(t1date_1 <= 4) 
+T1_stud <- T1_stud %>% filter(t1found == 1) %>% filter(t1date_1 <= 4) 
+```
+
+## Extract Date and Email 
+
+```{r}
+
+
+# T1 = transform(T1, newcol=paste(t1code_1, t1code_2, t1code_3, sep="_") %>%
+#                       as.character(.) %>% tolower(.))
+# 
+# T2 = transform(T2, newcol=paste(t2code_1, t2code_2, t2code_3, sep="_") %>%
+#                       as.character(.) %>% tolower(.)) 
+# 
+# T3 = transform(T3, newcol=paste(t3code_1, t3code_2, t3code_3, sep="_") %>%
+#                       as.character(.) %>% tolower(.)) 
+# 
+# T12 = left_join(T1, T2, by = "newcol")
+# T12 = left_join(T12, T3, by = "newcol")
+# 
+# 
+# T12_INDIA_no <- T12 %>% filter(t1event == 2)
+# T12_INDIA_yes <- T12 
+# library(xlsx)
+# names(T12_INDIA_no)
+# email_date_INDIA_no <- T12_INDIA_no %>% dplyr::select(matches("StartDate|email|t2code_1.x|newcol|t2code_1|t3code_1"))
+# email_date_INDIA_yes <- T12_INDIA_yes %>% dplyr::select(matches("StartDate|email|t2code_1.x|newcol|t2code_1|t3code_1"))
+# 
+# write.xlsx(email_date_INDIA_no, file = "email_date_INDIA_no.xlsx",sheetName = "email_date", row.names = FALSE, col.names=T)
+# write.xlsx(email_date_INDIA_yes, file = "email_date_INDIA_yes.xlsx",sheetName = "email_date", row.names = FALSE, col.names=T)
+# 
+# 
+# 
+# T1_stud = transform(T1_stud, newcol=paste(t1code_1, t1code_2, t1code_3, sep="_") %>%
+#                       as.character(.) %>% tolower(.))
+# 
+# T2 = transform(T2, newcol=paste(t2code_1, t2code_2, t2code_3, sep="_") %>%
+#                       as.character(.) %>% tolower(.)) 
+# 
+# T3 = transform(T3, newcol=paste(t3code_1, t3code_2, t3code_3, sep="_") %>%
+#                       as.character(.) %>% tolower(.)) 
+# 
+# T12_stud = left_join(T1_stud, T2, by = "newcol")
+# T12_stud = left_join(T12_stud, T3, by = "newcol")
+# 
+# library(xlsx)
+# email_date_STUD_yes <- T12_stud %>% dplyr::select(matches("StartDate|email|t2code_1.x|newcol|t2code_1|t3code_1"))
+# write.xlsx(email_date_STUD_yes, file = "email_date_STUD_yes.xlsx",sheetName = "email_date", row.names = FALSE, col.names=T)
+
+```
+
+# Combine all data 
+
+```{r}
+T1 <- as.data.frame(Events_T1) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+T1_stud <- as.data.frame(Events_T1_stud) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+T1_second <- as.data.frame(Events_T1_second) %>% 
+  dplyr::rename(
+    DurationT1 = Duration__in_seconds_
+    )
+
+T1 <- rbind.fill(T1, T1_stud, T1_second)
+
+T1 = transform(T1, newcol=paste(t1code_1, t1code_2, t1code_3, sep="_"), stringsAsFactors = FALSE) 
+T2 = transform(T2, newcol=paste(t2code_1, t2code_2, t2code_3, sep="_"), stringsAsFactors = FALSE) 
+T3 = transform(T3, newcol=paste(t3code_1, t3code_2, t3code_3, sep="_"), stringsAsFactors = FALSE) 
+
+T1$newcol <- tolower(T1$newcol)
+T2$newcol <- tolower(T2$newcol)
+T3$newcol <- tolower(T3$newcol)
+
+T1 <- T1 %>%
+  replace_with_na(replace = list(newcol = "__"))
+T2 <- T2 %>%
+  replace_with_na(replace = list(newcol = "__"))
+T3 <- T3 %>%
+  replace_with_na(replace = list(newcol = "__"))
+
+T12 = left_join(T1, T2, by = "newcol")
+T123= left_join(T12, T3, by = "newcol")
+
+
+T123_event <- subset(T123, t1event == 1)
+T123_event <- T123_event[!duplicated(T123_event$newcol), ]
+
+T123_event <- T123_event %>% filter_at(vars(matches("novel|disrup|perfo")) ,any_vars(!is.na(.)))
+
+library(dplyr)
+
+T123_event$T1Severity_1 <- T123_event %>% dplyr::select(t1novel_1, t1disrup_1, t1perfo_1) %>% rowMeans(.)
+T123_event$T1Severity_2 <- T123_event %>% dplyr::select(t1novel_2, t1disrup_2, t1perfo_2) %>% rowMeans(.)
+T123_event$T1Severity_3 <- T123_event %>% dplyr::select(t1novel_3, t1disrup_3, t1perfo_3) %>% rowMeans(.)
+T123_event$T1Severity_4 <- T123_event %>% dplyr::select(t1novel_4, t1disrup_4, t1perfo_4) %>% rowMeans(.)
+T123_event$T1Severity_5 <- T123_event %>% dplyr::select(t1novel_5, t1disrup_5, t1perfo_5) %>% rowMeans(.)
+T123_event$T1Severity_6 <- T123_event %>% dplyr::select(t1novel_6, t1disrup_6, t1perfo_6) %>% rowMeans(.)
+T123_event$T1Severity_7 <- T123_event %>% dplyr::select(t1novel_7, t1disrup_7, t1perfo_7) %>% rowMeans(.)
+T123_event$T1Severity_8 <- T123_event %>% dplyr::select(t1novel_8, t1disrup_8, t1perfo_8) %>% rowMeans(.)
+
+
+T123_event <- T123_event[rowSums(is.na(T123_event[ , 1253:1260]))  < 8, ] #remove all that have NA on all severity columns
+
+max_event <- T123_event %>% dplyr::select(matches("Severity")) %>% data.frame(.) #make data frame from severity columns
+
+max_sev <- apply(max_event,1,which.max) #get column with maximum severity
+
+T123_event <- cbind(T123_event, max_sev)
+
+T123_event_stuff <- T123_event %>% dplyr::select(matches("max_sev|event|evcat|evdes|novel|disrup|perfo|cope|threat|emotionslast|threatlast|probsolv"))
+T123_event_stuff_no <- T123_event %>% dplyr::select(!matches("max_sev|event|evcat|evdes|novel|disrup|perfo|cope|threat|emotionslast|threatlast|probsolv"))
+
+names(T123_event_stuff)  <- gsub("(^.*)(threatlast)([a-z]{3})(_[1-9]{1})(_1)", paste0("\\1", "\\2", "\\3", "\\4"), names(T123_event_stuff))
+
+names(T123_event_stuff) <- gsub("_1_", "_", fixed = T, perl=F, names(T123_event_stuff))
+
+names(T123_event_stuff) <- gsub("_1_", "1_", fixed = T, perl=F, names(T123_event_stuff))
+names(T123_event_stuff) <- gsub("_2_", "2_", fixed = T, perl=F, names(T123_event_stuff))
+
+names(T123_event_stuff)  <- gsub("(^.*)fin(_[0-9]+$)", paste0("\\1","\\2", "_1"), names(T123_event_stuff))
+names(T123_event_stuff)  <- gsub("(^.*)cli(_[0-9]+$)", paste0("\\1","\\2", "_2"), names(T123_event_stuff))
+names(T123_event_stuff)  <- gsub("(^.*)bet(_[0-9]+$)", paste0("\\1","\\2", "_3"), names(T123_event_stuff))
+names(T123_event_stuff)  <- gsub("(^.*)leg(_[0-9]+$)", paste0("\\1","\\2", "_4"), names(T123_event_stuff))
+names(T123_event_stuff)  <- gsub("(^.*)abs(_[0-9]+$)", paste0("\\1","\\2", "_5"), names(T123_event_stuff))
+names(T123_event_stuff)  <- gsub("(^.*)mat(_[0-9]+$)", paste0("\\1","\\2", "_6"), names(T123_event_stuff))
+names(T123_event_stuff)  <- gsub("(^.*)mis(_[0-9]+$)", paste0("\\1","\\2", "_7"), names(T123_event_stuff))
+names(T123_event_stuff)  <- gsub("(^.*)oth(_[0-9]+$)", paste0("\\1","\\2", "_8"), names(T123_event_stuff))
+
+names(T123_event_stuff) <- gsub("(t[1-3]{1})(emotionslast)_([1-9]+)(_[0-9]{1})", paste0("\\1", "\\2", "\\3", "\\4"), fixed = F, perl=F, names(T123_event_stuff))
+names(T123_event_stuff) <- gsub("(t[1-3]{1})(threatlast)_([1-9]+)(_[0-9]{1})", paste0("\\1", "\\2", "\\3", "\\4"), fixed = F, perl=F, names(T123_event_stuff))
+names(T123_event_stuff) <- gsub("(t[1-3]{1})(threat)_([1-9]+)(_[0-9]{1})", paste0("\\1", "\\2", "\\3", "\\4"), fixed = F, perl=F, names(T123_event_stuff))
+
+t1evcats <- cbind(T123_event_stuff$t1evcat_1, T123_event_stuff$t1evcat_2, T123_event_stuff$t1evcat_3, T123_event_stuff$t1evcat_4, T123_event_stuff$t1evcat_5,
+                T123_event_stuff$t1evcat_6, T123_event_stuff$t1evcat_7, T123_event_stuff$t1evcat_8) %>% as.data.frame(.)
+
+names(t1evcats) <- c("t1evcat_financial", "t1evcat_clients", "t1evcat_stakeholder", "t1evcat_legal", "t1evcat_support", "t1evcat_material", "t1evcat_mistake", "t1evcat_other")
+
+t2evcats <- cbind(T123_event_stuff$t2evcat_1, T123_event_stuff$t2evcat_2, T123_event_stuff$t2evcat_3, T123_event_stuff$t2evcat_4, T123_event_stuff$t2evcat_5,
+                T123_event_stuff$t2evcat_6, T123_event_stuff$t2evcat_7, T123_event_stuff$t2evcat_8 )%>% as.data.frame(.)
+
+names(t2evcats) <- c("t2evcat_financial", "t2evcat_clients", "t2evcat_stakeholder", "t2evcat_legal", "t2evcat_support", "t2evcat_material", "t2evcat_mistake", "t2evcat_other")
+
+t3evcats <- cbind(T123_event_stuff$t3evcat_1, T123_event_stuff$t3evcat_2, T123_event_stuff$t3evcat_3, T123_event_stuff$t3evcat_4, T123_event_stuff$t3evcat_5,
+                T123_event_stuff$t3evcat_6, T123_event_stuff$t3evcat_7, T123_event_stuff$t3evcat_8) %>% as.data.frame(.)
+
+names(t3evcats) <- c("t3evcat_financial", "t3evcat_clients", "t3evcat_takeholder", "t3evcat_legal", "t3evcat_support", "t3evcat_material", "t3evcat_mistake", "t3evcat_other")
+
+
+
+
+T123_event_stuff_sel <- T123_event_stuff %>%
+  pivot_longer(cols = -max_sev, names_to = c(".value", "index"), names_pattern = "(t[1-9]{1}[a-z]+._)(\\d$)") %>%
+  filter(str_extract(as.character(max_sev), "\\d$") == index)
+
+T123 <- cbind(T123_event_stuff_no, T123_event_stuff_sel)
+
+names(T123)
+
+t1 <- T123 %>% dplyr::select(matches("RecordedDate.x|newcol|t1occ|t1preocc|t1found|t1date|t1own|t1age|t1gender|t1lang|t1edu|t1emotions|t1location|t1jobsa|t1jobstr|t1wofa|max_sev|t1evdes|t1novel|t1disrup|t1perfo|t1cope|t1threat|t1probsolv"))
+t2 <- T123 %>% dplyr::select(matches("t2emotions|t2jobsa|t2jobstr|t2wofa|t2evdes|t2novel|t2disrup|t2perfo|t2cope|t2threat|t2probsolv"))
+t3 <- T123 %>% dplyr::select(matches("t3emotions|t3jobsa|t3jobstr|t3wofa|t3evdes|t3novel|t3disrup|t3perfo|t3cope|t3threat|t3probsolv"))
+
+df <- cbind(t1, t2, t3)
+df <- df[!grepl("hello", df$t1evdes, fixed = TRUE),] #remove all nonsense entries 
+df <- df[!grepl("nothing", df$t1evdes, fixed = TRUE),]
+df <- df[!grepl("jhkjhkjhkjhk", df$t1evdes, fixed = TRUE),]
+df <- df[!grepl("TESTOMAT", df$t1evdes, fixed = TRUE),]
+df <- df[!grepl("\\b", df$t1evdes, fixed = TRUE),]  
+
+
+df_events <- df
+```
+
+# Clean data
+
+```{r}
+library(stringr)
+
+library(zoo)
+library(lubridate)
+library(sjlabelled)
+df_events$t1date_1
+
+df_events$year <- as.numeric(names(attr(df_events$t1date_1,"labels")[match(df_events$t1date_1,attr(df_events$t1date_1,"labels"))]))
+df_events$month <- as.numeric(df_events$t1date_2_1 %>% remove_all_labels(.))
+
+
+df_events$t1timebuiss <- as.yearmon(paste(df_events$year, df_events$month), "%Y %m")
+
+df_events$t1timebuiss <- as_date(df_events$t1timebuiss)
+
+df_events$RecordedDate.x <- as.yearmon(df_events$RecordedDate.x, "%Y %m")
+
+df_events$RecordedDate.x <- as_date(df_events$RecordedDate.x)
+
+
+df_events$t1timebuiss <- difftime(df_events$RecordedDate.x, df_events$t1timebuiss, UTC,
+         units = c("days"))
+
+```
+
+
+```{r, include = F}
+df_events$t1location <- as.numeric(as.character(df_events$t1location))
+# prolific
+df_events_num <- df_events %>% remove_all_labels(.) %>% select_if(., is.numeric) %>% dplyr::select(-matches("t1occ|t1found|t1own|t1age|t1gender|t1lang|t1edu|t1preocc|ev|novel|disrup|perfo|t1probsolv|cope|timebuiss|date|year|month|t2wofa|t3wofa|jobsa_2_2"))
+
+df_events_char <- df_events %>% dplyr::select(matches("t1occ|t1found|t1own|t1location|t1age|t1gender|t1lang|t1edu|t1preocc|ev|novel|disrup|perfo|t1probsolv|cope|timebuiss")) %>% dplyr::select(-matches("TEXT"))
+
+
+names(df_events_num) <- gsub("jobsa_2_1", "jobsa_2", names(df_events_num))
+names(df_events_num) <- gsub("jobsa_2_3", "jobsa_3", names(df_events_num))
+names(df_events_num) <- gsub("threat1_", "threat_1", names(df_events_num))
+names(df_events_num) <- gsub("threat2_", "threat_2", names(df_events_num))
+names(df_events_num) <- gsub("threat3_", "threat_3", names(df_events_num))
+names(df_events_num) <- gsub("threatlast1_", "threatlast_1", names(df_events_num))
+names(df_events_num) <- gsub("threatlast2_", "threatlast_2", names(df_events_num))
+names(df_events_num) <- gsub("threatlast3_", "threatlast_3", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast1_", "emotionslast_1", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast2_", "emotionslast_2", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast3_", "emotionslast_3", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast4_", "emotionslast_4", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast5_", "emotionslast_5", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast6_", "emotionslast_6", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast7_", "emotionslast_7", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast8_", "emotionslast_8", names(df_events_num))
+names(df_events_num) <- gsub("emotionslast9_", "emotionslast_9", names(df_events_num))
+
+
+
+## make z scores for jobsa to use for composite
+df_events_num <- 
+df_events_num %>% 
+  mutate(t1jobsa_1 = (t1jobsa_1 - mean(t1jobsa_1, na.rm = T))/sd(t1jobsa_1, na.rm =T)) %>% 
+  mutate(t2jobsa_1 = (t2jobsa_1 - mean(t2jobsa_1, na.rm = T))/sd(t1jobsa_1, na.rm = T)) %>% 
+  mutate(t3jobsa_1 = (t3jobsa_1 - mean(t3jobsa_1, na.rm = T))/sd(t1jobsa_1, na.rm = T)) %>%
+  mutate(t1jobsa_2 = (t1jobsa_2 - mean(t1jobsa_2, na.rm = T))/sd(t1jobsa_2, na.rm = T)) %>% 
+  mutate(t2jobsa_2 = (t2jobsa_2 - mean(t2jobsa_2, na.rm = T))/sd(t1jobsa_2, na.rm = T)) %>% 
+  mutate(t3jobsa_2 = (t3jobsa_2 - mean(t3jobsa_2, na.rm = T))/sd(t1jobsa_2, na.rm = T)) %>%
+  mutate(t1jobsa_3 = (t1jobsa_3 - mean(t1jobsa_3, na.rm = T))/sd(t1jobsa_3, na.rm = T)) %>% 
+  mutate(t2jobsa_3 = (t2jobsa_3 - mean(t2jobsa_3, na.rm = T))/sd(t1jobsa_3, na.rm = T)) %>% 
+  mutate(t3jobsa_3 = (t3jobsa_3 - mean(t3jobsa_3, na.rm = T))/sd(t1jobsa_3, na.rm = T)) 
+
+
+df_events_num$t1jobsa_3 <- (-1)*df_events_num$t1jobsa_3
+df_events_num$t2jobsa_3 <- (-1)*df_events_num$t2jobsa_3
+df_events_num$t3jobsa_3 <- (-1)*df_events_num$t3jobsa_3
+library(haven)
+df_events <- do.call("cbind", df_events_num) %>% cbind(., df_events_char)
+
+df_events <- df_events %>% dplyr::select(-matches("t1location"))
+
+df_events <- df_events %>% 
+  dplyr::rename(
+    t1emotionshigh_1 = t1emotions_1,
+    t1emotionshigh_2 = t1emotions_2,
+    t1emotionshigh_3 = t1emotions_3,
+    t1emotionshigh_4 = t1emotions_4,
+    t1emotionshigh_5 = t1emotions_5,
+    t1emotionslow_1 = t1emotions_11,
+    t1emotionslow_2 = t1emotions_12,
+    t1emotionslow_3 = t1emotions_13,
+    t1emotionslow_4 = t1emotions_14,
+    t1emotionslow_5 = t1emotions_15,
+    t1jobsaoverall = t1jobsa_1,
+    t1jobsahappy = t1jobsa_2,
+    t1jobsaunhappy = t1jobsa_3,
+    t2jobsaoverall = t2jobsa_1,
+    t2jobsahappy = t2jobsa_2,
+    t2jobsaunhappy = t2jobsa_3,
+    t3jobsaoverall = t3jobsa_1,
+    t3jobsahappy = t3jobsa_2,
+    t3jobsaunhappy = t3jobsa_3,
+    
+    t1copeact_1 = t1copeact1_,
+    t1copeact_2 = t1copeact2_,
+    t1copeplan_1 = t1copeplan1_,
+    t1copeplan_2 = t1copeplan2_,
+    t1coperefram_1 = t1coperefram1_,
+    t1coperefram_2 = t1coperefram2_,
+    t1copeaccept_1 = t1copeaccept1_,
+    t1copeaccept_2 = t1copeaccept2_,
+    t1copehumor_1 = t1copehumor1_,
+    t1copehumor_2 = t1copehumor2_,
+    t1copeemosup_1 = t1copeemosup1_,
+    t1copeemosup_2 = t1copeemosup2_,
+    t1copeinssup_1 = t1copeinssup1_,
+    t1copeinssup_2 = t1copeinssup2_,
+    t1copedistr_1 = t1copedistr1_,
+    t1copedistr_2 = t1copedistr2_,
+    t1copedenial_1 = t1copedenial1_,
+    t1copedenial_2 = t1copedenial2_,
+    t1copevent_1 = t1copevent1_,
+    t1copevent_2 = t1copevent2_,
+    t1copediseng_1 = t1copediseng1_,
+    t1copediseng_2 = t1copediseng2_,
+    t1copeblame_1 = t1copeblame1_,
+    t1copeblame_2 = t1copeblame2_,
+    
+    t2copeact_1 = t2copeact2_,
+    t2copeact_2 = t2copeact2_,
+    t2copeplan_1 = t2copeplan1_,
+    t2copeplan_2 = t2copeplan2_,
+    t2coperefram_1 = t2coperefram1_,
+    t2coperefram_2 = t2coperefram2_,
+    t2copeaccept_1 = t2copeaccept2_,
+    t2copeaccept_2 = t2copeaccept2_,
+    t2copehumor_1 = t2copehumor1_,
+    t2copehumor_2 = t2copehumor2_,
+    t2copeemosup_1 = t2copeemosup1_,
+    t2copeemosup_2 = t2copeemosup2_,
+    t2copeinssup_1 = t2copeinssup1_,
+    t2copeinssup_2 = t2copeinssup2_,
+    t2copedistr_1 = t2copedistr1_,
+    t2copedistr_2 = t2copedistr2_,
+    t2copedenial_1 = t2copedenial1_,
+    t2copedenial_2 = t2copedenial2_,
+    t2copevent_1 = t2copevent2_,
+    t2copevent_2 = t2copevent2_,
+    t2copediseng_1 = t2copediseng1_,
+    t2copediseng_2 = t2copediseng2_,
+    t2copeblame_1 = t2copeblame1_,
+    t2copeblame_2 = t2copeblame2_,
+    
+    t3copeact_1 = t3copeact1_,
+    t3copeact_2 = t3copeact2_,
+    t3copeplan_1 = t3copeplan1_,
+    t3copeplan_2 = t3copeplan2_,
+    t3coperefram_1 = t3coperefram1_,
+    t3coperefram_2 = t3coperefram2_,
+    t3copeaccept_1 = t3copeaccept1_,
+    t3copeaccept_2 = t3copeaccept2_,
+    t3copehumor_1 = t3copehumor1_,
+    t3copehumor_2 = t3copehumor2_,
+    t3copeemosup_1 = t3copeemosup1_,
+    t3copeemosup_2 = t3copeemosup2_,
+    t3copeinssup_1 = t3copeinssup1_,
+    t3copeinssup_2 = t3copeinssup2_,
+    t3copedistr_1 = t3copedistr1_,
+    t3copedistr_2 = t3copedistr2_,
+    t3copedenial_1 = t3copedenial1_,
+    t3copedenial_2 = t3copedenial2_,
+    t3copevent_1 = t3copevent1_,
+    t3copevent_2 = t3copevent2_,
+    t3copediseng_1 = t3copediseng1_,
+    t3copediseng_2 = t3copediseng2_,
+    t3copeblame_1 = t3copeblame1_,
+    t3copeblame_2 = t3copeblame2_
+  )
+
+df_events$severity <- rowMeans(df_events[,c('t1novel_', 't1disrup_', 't1perfo_')], na.rm=TRUE) # compute severity 
+
+library(haven)
+write_sav(df_events, "03_Data/raw_data/events_studis_india.sav")
+
+```
+
+
+```{r corr, include = F}
+comp_split <- df_events_num %>% remove_all_labels(.) %>%
+  split.default(sub("_.*", "", names(df_events_num))) 
+
+df_events_num_alpha <- df_events_num[, which(colMeans(!is.na(df_events_num)) > 0.5)] %>% dplyr::select(-matches("t1location"))
+comp_split_alpha <- df_events_num_alpha  %>% remove_all_labels(.) %>% 
+  split.default(sub("_.*", "", names(df_events_num_alpha))) 
+
+comp <- purrr::map(comp_split, ~ multicon::composite(.x, nomiss = 0.8), data = .x)
+alph <- purrr::map(comp_split_alpha, ~ psych::alpha(.x), data = .x) %>%
+  purrr::map(~ .x$total)
+
+comp_df <- do.call("cbind", comp) %>% cbind(., df_events_char) %>% remove_all_labels(.)
+alph_df <- do.call("rbind", alph) %>% round(., 2)
+```
+
+# Reliabilities overall
+
+``` {r reliabilities, include = T, echo = F}
+# prolific 
+alph_df %>%
+DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 20))
+
+```
+
+## India
+
+```{r}
+df_events_num_india <- df_events_num[df_events_num$t1location == 2,]
+df_events_char_india <- df_events_num[df_events_char$t1location == 2,]
+
+comp_split <- df_events_num_india %>% remove_all_labels(.) %>%
+  split.default(sub("_.*", "", names(df_events_num))) 
+
+df_events_num_alpha <- df_events_num_india[, which(colMeans(!is.na(df_events_num_india)) > 0.5)] %>% dplyr::select(-matches("t1location"))
+comp_split_alpha <- df_events_num_alpha %>% remove_all_labels(.) %>%
+  split.default(sub("_.*", "", names(df_events_num_alpha))) 
+
+comp <- purrr::map(comp_split, ~ multicon::composite(.x, nomiss = 0.8), data = .x)
+alph <- purrr::map(comp_split_alpha, ~ psych::alpha(.x), data = .x) %>%
+  purrr::map(~ .x$total)
+
+comp_df_india <- do.call("cbind", comp) %>% cbind(., df_events_char_india) %>% remove_all_labels(.)
+alph_df_india <- do.call("rbind", alph) %>% round(., 2)
+
+```
+
+``` {r reliabilities, include = T, echo = F}
+# prolific 
+alph_df %>%
+DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 20))
+
+```
+
+## Western countries
+
+```{r}
+df_events_num_west <- df_events_num[df_events_num$t1location != 2,]
+df_events_char_west <- df_events_num[df_events_char$t1location != 2,]
+
+comp_split <- df_events_num_west %>% remove_all_labels(.) %>%
+  split.default(sub("_.*", "", names(df_events_num))) 
+
+df_events_num_alpha <- df_events_num_west[, which(colMeans(!is.na(df_events_num_west)) > 0.5)] %>% dplyr::select(-matches("t1location"))
+comp_split_alpha <- df_events_num_alpha %>% remove_all_labels(.) %>%
+  split.default(sub("_.*", "", names(df_events_num_alpha))) 
+
+comp <- purrr::map(comp_split, ~ multicon::composite(.x, nomiss = 0.8), data = .x)
+alph <- purrr::map(comp_split_alpha, ~ psych::alpha(.x), data = .x) %>%
+  purrr::map(~ .x$total)
+
+comp_df_west <- do.call("cbind", comp) %>% cbind(., df_events_char_west) %>% remove_all_labels(.)
+alph_df_west <- do.call("rbind", alph) %>% round(., 2)
+
+```
+
+``` {r reliabilities, include = T, echo = F}
+# prolific 
+alph_df_west %>%
+DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 20))
+
+```
+
+
+# Correlations overall
+
+```{r corr_table, include = F, echo = F}
+corstars <-function(x, method=c("pearson", "spearman"), removeTriangle=c("upper", "lower", "none"),
+                     result=c("none", "html", "latex")){
+    #Compute correlation matrix
+    require(Hmisc)
+    x <- as.matrix(x)
+    correlation_matrix<-rcorr(x, type=method[1])
+    R <- correlation_matrix$r # Matrix of correlation coeficients
+    p <- correlation_matrix$P # Matrix of p-value 
+    
+    ## Define notions for significance levels; spacing is important.
+    mystars <- ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    ")))
+    
+    ## trunctuate the correlation matrix to two decimal
+    R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+    
+    ## build a new matrix that includes the correlations with their apropriate stars
+    Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+    diag(Rnew) <- paste(diag(R), " ", sep="")
+    rownames(Rnew) <- colnames(x)
+    colnames(Rnew) <- paste(colnames(x), "", sep="")
+    
+    ## remove upper triangle of correlation matrix
+    if(removeTriangle[1]=="upper"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    ## remove lower triangle of correlation matrix
+    else if(removeTriangle[1]=="lower"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    else if(removeTriangle[1]=="none"){
+      Rnew <- as.matrix(Rnew)
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    ## remove last column and return the correlation matrix
+    Rnew <- cbind(Rnew[1:length(Rnew)-1])
+    if (result[1]=="none") return(Rnew)
+    else{
+      if(result[1]=="html") print(xtable(Rnew), type="html")
+      else print(xtable(Rnew), type="latex") 
+    }
+} 
+library(kableExtra)
+
+comp_df <- comp_df %>% select_if(., is.numeric)
+
+corstar <- data.frame(corstars(comp_df, removeTriangle = "none", result="none"))
+
+```
+
+``` {r corr_table2, include = T, echo = F}
+corstar %>%
+  DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 35,
+                  lengthMenu = c(25, 50, 75, 94)))
+
+
+
+write_sav(comp_df, "Data/comp_df.sav")
+```
+
+## India
+
+```{r}
+
+corstar <- data.frame(corstars(comp_df_india, removeTriangle = "none", result="none"))
+corstar %>%
+  DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 35,
+                  lengthMenu = c(25, 50, 75, 94)))
+
+
+
+write_sav(comp_df_india, "Data/comp_df_india.sav")
+```
+
+

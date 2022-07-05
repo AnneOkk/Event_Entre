@@ -1,0 +1,35 @@
+# History files
+.Rhistory
+.Rapp.history
+
+# Session Data files
+.RData
+
+# RStudio files
+.Rproj.user/
+
+# knitr and R markdown default cache directories
+/analysis/cache/
+/analysis/figures/
+
+# Temporary files created by R markdown
+*.utf8.md
+*.knit.md
+
+# RStudio
+.Rproj.user
+
+# DS_Store
+.DS_Store
+
+# gitkeep
+.gitkeep
+
+# remove data folder
+/Data
+
+# remove questionnaire folder
+/02_Research_materials
+
+# remove ethics folder
+/01_Ethics_approval
